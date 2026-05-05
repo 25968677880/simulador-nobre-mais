@@ -447,6 +447,23 @@
         <span class="toggle-label">Contrato anterior a 16/01/2025 registrado em cartório (regime transitório 3,65%)</span>
       </div>
     </div>
+
+    <div class="section-title" style="margin-top:20px;">Deduções IRPF mensais — Pessoa Física</div>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Aplicadas antes da tabela progressiva. O simulador usa o maior valor entre o desconto simplificado (R$ 607,20) e a soma das deduções reais informadas abaixo.</p>
+    <div class="form-grid">
+      <div class="form-field">
+        <label>Nº de dependentes</label>
+        <input type="number" id="dependentes" value="0" min="0" max="20" oninput="calc()" placeholder="0">
+      </div>
+      <div class="form-field">
+        <label>INSS mensal pago (R$) <span style="font-weight:400;color:var(--dourado);font-size:11px;text-transform:none;letter-spacing:0">contribuinte individual</span></label>
+        <input type="number" id="inss" value="0" min="0" step="50" oninput="calc()" placeholder="0">
+      </div>
+      <div class="form-field">
+        <label>Pensão alimentícia judicial (R$)</label>
+        <input type="number" id="pensao" value="0" min="0" step="50" oninput="calc()" placeholder="0">
+      </div>
+    </div>
   </div>
 
   <!-- AVISO PF -->
@@ -628,6 +645,23 @@
         </select>
       </div>
     </div>
+
+    <div class="section-title" style="margin-top:20px;">Deduções IRPF mensais — Pessoa Física</div>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">O simulador usa o maior valor entre o desconto simplificado (R$ 607,20) e a soma das deduções reais abaixo.</p>
+    <div class="form-grid">
+      <div class="form-field">
+        <label>Nº de dependentes</label>
+        <input type="number" id="ct-dependentes" value="0" min="0" max="20" oninput="calcCT()" placeholder="0">
+      </div>
+      <div class="form-field">
+        <label>INSS mensal pago (R$) <span style="font-weight:400;color:var(--dourado);font-size:11px;text-transform:none;letter-spacing:0">contribuinte individual</span></label>
+        <input type="number" id="ct-inss" value="0" min="0" step="50" oninput="calcCT()" placeholder="0">
+      </div>
+      <div class="form-field">
+        <label>Pensão alimentícia judicial (R$)</label>
+        <input type="number" id="ct-pensao" value="0" min="0" step="50" oninput="calcCT()" placeholder="0">
+      </div>
+    </div>
   </div>
 
   <!-- AVISO PF NÃO CONTRIBUINTE -->
@@ -772,12 +806,60 @@ function loadScenario(i) {
   calc();
 }
 
-function irpfMensal(base) {
-  if(base<=2259.20) return 0;
-  if(base<=2826.65) return base*0.075-169.44;
-  if(base<=3751.05) return base*0.15-381.44;
-  if(base<=4664.68) return base*0.225-662.77;
-  return base*0.275-896.00;
+// Calcula IR pela tabela progressiva mensal 2026 — faixa a faixa (igual ao simulador da Receita)
+// Faixas vigentes desde maio/2025, mantidas em 2026
+// 1ª faixa: até 2.428,80 — 0%
+// 2ª faixa: 2.428,81 a 2.826,65 — 7,5%
+// 3ª faixa: 2.826,66 a 3.751,05 — 15%
+// 4ª faixa: 3.751,06 a 4.664,68 — 22,5%
+// 5ª faixa: acima de 4.664,68 — 27,5%
+function irpfMensal(baseLiquida) {
+  if(baseLiquida <= 0) return 0;
+  let imp = 0;
+  const faixas = [
+    {ate: 2428.80, aliq: 0.000},
+    {ate: 2826.65, aliq: 0.075},
+    {ate: 3751.05, aliq: 0.150},
+    {ate: 4664.68, aliq: 0.225},
+    {ate: Infinity, aliq: 0.275}
+  ];
+  let anterior = 0;
+  for(const f of faixas) {
+    const teto = Math.min(baseLiquida, f.ate);
+    if(teto > anterior) {
+      imp += (teto - anterior) * f.aliq;
+      anterior = teto;
+    }
+    if(baseLiquida <= f.ate) break;
+  }
+  return imp;
+}
+
+// Aplica o redutor de isenção 2026 (Lei 15.270/2025)
+// ATENÇÃO: o redutor usa a RENDA BRUTA (antes das deduções), não a base líquida
+// Até R$5.000 bruto: redutor fixo de R$312,89 (zera o imposto)
+// R$5.000,01 a R$7.350: redutor = R$978,62 - (0,133145 × renda bruta)
+// Acima de R$7.350: sem redutor
+function aplicarIsentao5k(impostoApurado, rendaBruta) {
+  if(impostoApurado <= 0) return 0;
+  let redutor = 0;
+  if(rendaBruta <= 5000) {
+    redutor = 312.89;
+  } else if(rendaBruta <= 7350) {
+    redutor = 978.62 - (0.133145 * rendaBruta);
+  }
+  return Math.max(0, impostoApurado - redutor);
+}
+
+// Calcula deduções IRPF: compara simplificado (R$607,20) vs real
+// Retorna { baseLiquida, dedUsada, tipo }
+function calcBaseLiquidaIRPF(rendaBruta, nDep, inss, pensao) {
+  const DEP_MENSAL = 189.59;
+  const SIMPLIFICADO = 607.20;
+  const dedReal = (nDep * DEP_MENSAL) + inss + pensao;
+  const dedUsada = Math.max(SIMPLIFICADO, dedReal);
+  const baseLiquida = Math.max(0, rendaBruta - dedUsada);
+  return { baseLiquida, dedUsada, tipo: dedReal > SIMPLIFICADO ? 'real' : 'simplificado' };
 }
 
 function aplicarIsentao5k(imposto, rendaTotal) {
@@ -812,6 +894,9 @@ function calc() {
 
   const aliqEfetiva = TRANS_IBSCBS[ano] || 0.084;
   const pisCofins_pj = PISCOFINS_PJ[ano] || 0.0;
+  const nDep = parseInt(document.getElementById('dependentes').value)||0;
+  const inss = parseFloat(document.getElementById('inss').value)||0;
+  const pensao = parseFloat(document.getElementById('pensao').value)||0;
   const receita_anual = aluguel*12;
   const pfContrib = nImoveis>3 && receita_anual>240000;
 
@@ -828,9 +913,10 @@ function calc() {
     const r = calcIBSCBS(aluguel,nImoveis,tipo,aliqEfetiva);
     pf_ibscbs = r.ibscbs; pfRedutorSocial=r.redutorSocial; pfBase=r.base; pfValorReductor=r.valorReductor;
   }
-  const rendaTotalPF = (aluguel - pf_ibscbs) + outraRenda;
-  const irpfBruto = irpfMensal(rendaTotalPF);
-  pf_irpf = aplicarIsentao5k(irpfBruto, rendaTotalPF);
+  const rendaBrutaPF = (aluguel - pf_ibscbs) + outraRenda;
+  const { baseLiquida: baseLiqPF, dedUsada: dedPF, tipo: tipoDedPF } = calcBaseLiquidaIRPF(rendaBrutaPF, nDep, inss, pensao);
+  const irpfBruto = irpfMensal(baseLiqPF);
+  pf_irpf = aplicarIsentao5k(irpfBruto, rendaBrutaPF);
 
   const pf_total = pf_ibscbs + pf_irpf;
   const pf_liquido = aluguel - pf_total;
@@ -874,20 +960,22 @@ function calc() {
   document.getElementById('pfLiquido').textContent = fmt(pf_liquido);
 
   let pfHtml='';
+  pfHtml += row('Aluguel bruto',fmt(aluguel));
   if(pfContrib) {
-    pfHtml += row('Aluguel bruto',fmt(aluguel));
     if(residencial) pfHtml += row('Redutor social ('+nImoveis+'x R$'+Math.round(pfValorReductor)+')',`- ${fmt(pfRedutorSocial)}`,'neg');
     pfHtml += row('Base IBS/CBS',fmt(pfBase));
     pfHtml += row(`IBS + CBS (${fmtPct(aliqEfetiva*100)})`,`- ${fmt(pf_ibscbs)}`,'neg');
     pfHtml += `<hr class="divider-row">`;
-    pfHtml += row('Base IRPF (aluguel - IBS/CBS)',fmt(aluguel-pf_ibscbs));
-    if(outraRenda>0) pfHtml += row('+ Outras rendas',fmt(outraRenda));
-    pfHtml += row('IRPF (tabela progressiva)',irpfBruto>pf_irpf?`- ${fmt(pf_irpf)} <span style="font-size:11px;color:var(--green-pos)">(com isenção 5k)</span>`:`- ${fmt(pf_irpf)}`,'neg');
+    pfHtml += row('Renda bruta IRPF',fmt(rendaBrutaPF));
+    pfHtml += row(`Dedução ${tipoDedPF==='simplificado'?'simplificada':'real'} (${tipoDedPF==='simplificado'?'R$607,20':fmt(dedPF)})`,`- ${fmt(dedPF)}`,'neg');
+    pfHtml += row('Base líquida IRPF',fmt(baseLiqPF));
+    pfHtml += row('IRPF',irpfBruto>pf_irpf?`- ${fmt(pf_irpf)} <span style="font-size:11px;color:var(--green-pos)">(isenção 5k)</span>`:`- ${fmt(pf_irpf)}`,'neg');
   } else {
-    pfHtml += row('Aluguel bruto',fmt(aluguel));
     pfHtml += row('IBS + CBS','Não incide','zero');
     if(outraRenda>0) pfHtml += row('+ Outras rendas',fmt(outraRenda));
-    pfHtml += row('IRPF (tabela progressiva)', pf_irpf===0?'Isento (≤ R$5.000)':(`- ${fmt(pf_irpf)}`), pf_irpf===0?'zero':'neg');
+    pfHtml += row(`Dedução ${tipoDedPF==='simplificado'?'simplificada':'real'}`,`- ${fmt(dedPF)}`,'neg');
+    pfHtml += row('Base líquida IRPF',fmt(baseLiqPF));
+    pfHtml += row('IRPF', pf_irpf===0?'Isento (≤ R$5.000)':`- ${fmt(pf_irpf)}`, pf_irpf===0?'zero':'neg');
   }
   document.getElementById('pfBreakdown').innerHTML = pfHtml;
 
@@ -1016,6 +1104,9 @@ function calcCT() {
   const aliqCT = (TRANS_IBSCBS[ano]||0.084) / 0.30 * 0.60;
   const pisCofins = PISCOFINS_PJ[ano]||0.0;
   const valorReductor = parseFloat(document.getElementById('redutorSocial').value)||600;
+  const nDepCT = parseInt(document.getElementById('ct-dependentes').value)||0;
+  const inssCT = parseFloat(document.getElementById('ct-inss').value)||0;
+  const pensaoCT = parseFloat(document.getElementById('ct-pensao').value)||0;
 
   // PF — critérios art. 382
   const receita_anual = receita * 12;
@@ -1031,10 +1122,11 @@ function calcCT() {
   // === PF ===
   // Curta temporada: sem redutor social, alíquota de hotelaria
   let pf_ibscbs = 0;
-  if(pfContrib) pf_ibscbs = receita * aliqCT; // sem redutor na curta
-  const rendaPF = (receita - pf_ibscbs) + outraRenda;
-  const irpfBruto = irpfMensal(rendaPF);
-  const pf_irpf = aplicarIsentao5k(irpfBruto, rendaPF);
+  if(pfContrib) pf_ibscbs = receita * aliqCT;
+  const rendaBrutaCTPF = (receita - pf_ibscbs) + outraRenda;
+  const { baseLiquida: baseLiqCTPF, dedUsada: dedCTPF, tipo: tipoDedCTPF } = calcBaseLiquidaIRPF(rendaBrutaCTPF, nDepCT, inssCT, pensaoCT);
+  const irpfBrutoCT = irpfMensal(baseLiqCTPF);
+  const pf_irpf = aplicarIsentao5k(irpfBrutoCT, rendaBrutaCTPF);
   const pf_total = pf_ibscbs + pf_irpf;
   const pf_liq = receita - pf_total;
 
@@ -1064,12 +1156,15 @@ function calcCT() {
     pfHtml += row('Redutor social', 'Não aplicável na curta','zero');
     pfHtml += row(`IBS + CBS hotelaria (${fmtPct(aliqCT*100)})`,`- ${fmt(pf_ibscbs)}`,'neg');
     pfHtml += `<hr class="divider-row">`;
-    pfHtml += row('Base IRPF',fmt(receita-pf_ibscbs));
-    if(outraRenda>0) pfHtml += row('+ Outras rendas',fmt(outraRenda));
-    pfHtml += row('IRPF',irpfBruto>pf_irpf?`- ${fmt(pf_irpf)} <span style="font-size:11px;color:var(--green-pos)">(isenção 5k)</span>`:`- ${fmt(pf_irpf)}`,'neg');
+    pfHtml += row('Renda bruta IRPF',fmt(rendaBrutaCTPF));
+    pfHtml += row(`Dedução ${tipoDedCTPF==='simplificado'?'simplificada':'real'} (${tipoDedCTPF==='simplificado'?'R$607,20':fmt(dedCTPF)})`,`- ${fmt(dedCTPF)}`,'neg');
+    pfHtml += row('Base líquida IRPF',fmt(baseLiqCTPF));
+    pfHtml += row('IRPF',irpfBrutoCT>pf_irpf?`- ${fmt(pf_irpf)} <span style="font-size:11px;color:var(--green-pos)">(isenção 5k)</span>`:`- ${fmt(pf_irpf)}`,'neg');
   } else {
     pfHtml += row('IBS + CBS','Não incide','zero');
     if(outraRenda>0) pfHtml += row('+ Outras rendas',fmt(outraRenda));
+    pfHtml += row(`Dedução ${tipoDedCTPF==='simplificado'?'simplificada':'real'}`,`- ${fmt(dedCTPF)}`,'neg');
+    pfHtml += row('Base líquida IRPF',fmt(baseLiqCTPF));
     pfHtml += row('IRPF', pf_irpf===0?'Isento (≤ R$5.000)':`- ${fmt(pf_irpf)}`, pf_irpf===0?'zero':'neg');
   }
   document.getElementById('ct-pf-breakdown').innerHTML = pfHtml;
